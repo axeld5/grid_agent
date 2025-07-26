@@ -1,2 +1,5 @@
-smolagents
-anthropic
+fastapi==0.116.1
+uvicorn==0.35.0
+python-dotenv==1.1.1
+pydantic==2.11.7
+smolagents==1.20.0
