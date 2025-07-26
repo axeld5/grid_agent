@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from agent_utils.schemas import (
     Scorer, Information,
     ScoreRequest, InformationRequest, InformationResponse,
-    GridDataResponse, TemperatureDataResponse, NetworkDataResponse
+    GridDataResponse, TemperatureDataResponse, NetworkDataResponse, FullDataResponse
 )
 from agent_utils.prompts import generate_scoring_prompt, generate_information_prompt
 from agent_utils.tools import return_scores, return_information
@@ -162,3 +162,24 @@ def get_network_data():
         return NetworkDataResponse(data=data, total_count=total_count)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching network data: {e}") from e 
+
+
+def get_full_data():
+    """
+    Returns all data from grid_data, network_data, and temperature_data tables
+    in a combined dictionary format.
+    """
+    try:
+        # Get data from all three tables
+        grid_data, _ = supabase_get("grid_data")
+        network_data, _ = supabase_get("network_data")
+        temperature_data, _ = supabase_get("temperature_data")
+        
+        return FullDataResponse(
+            grid_data=grid_data,
+            network_data=network_data,
+            temperature_data=temperature_data
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching full data: {e}") from e 
+    

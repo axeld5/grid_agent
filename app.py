@@ -4,11 +4,11 @@ from dotenv import load_dotenv
 
 from agent_utils.schemas import (
     ScoreResponse, InformationResponse,
-    GridDataResponse, TemperatureDataResponse, NetworkDataResponse
+    GridDataResponse, TemperatureDataResponse, NetworkDataResponse, FullDataResponse
 )
 from endpoints import (
     score, information,
-    get_grid_data, get_temperature_data, get_network_data
+    get_grid_data, get_temperature_data, get_network_data, get_full_data
 )
 
 
@@ -26,7 +26,7 @@ app.post("/information", response_model=InformationResponse, summary="Get datace
 app.get("/data/grid", response_model=GridDataResponse, summary="Get all grid data")(get_grid_data)
 app.get("/data/temperature", response_model=TemperatureDataResponse, summary="Get all temperature data")(get_temperature_data)
 app.get("/data/network", response_model=NetworkDataResponse, summary="Get all network data")(get_network_data)
-
+app.get("/data/full", response_model=FullDataResponse, summary="Get all data")(get_full_data)
 
 # ---- Local dev runner ----
 if __name__ == "__main__":
