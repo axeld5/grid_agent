@@ -18,7 +18,7 @@ Return only JSON that matches the schema. If you compute intermediate things, do
 Use the `return_scores` tool to validate the final object."""
 
 
-def generate_information_prompt(user_query: str, schema_str: str) -> str:
+def generate_information_prompt(user_query: str, additional_context: str, schema_str: str) -> str:
     """Generate the prompt for gathering datacenter installation information.
     
     Args:
@@ -32,9 +32,12 @@ def generate_information_prompt(user_query: str, schema_str: str) -> str:
 I heard some things about France.
 Location can be tough due to people being "not in my backyard".
 Installation can be tough due to regulatory issues.
-My team has sent me this message with respect to their mapping of french locations: <user_query>
+More precisely, here is my query: <user_query>
 {user_query}
 </user_query>
+My team has sent me this message with respect to their mapping of french locations: <additional_context>
+{additional_context}
+</additional_context>
 Fill this data in the following json schema: {schema_str}
 When it comes to the data, it needs to be sourced. Do not state a "potential risk", state a risk that has occurred for similar projects.
 Make the risks as specific as possible with respect to the locations. Be as specific as possible.

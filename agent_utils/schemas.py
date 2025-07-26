@@ -28,19 +28,10 @@ class ScoreResponse(BaseModel):
     ranked_data: list[Dict[str, Any]]
 
 
-class CurrentView(BaseModel):
-    lat: float
-    lng: float
-    zoom: float
-
-
-class Context(BaseModel):
-    currentView: CurrentView
-
-
 class InformationRequest(BaseModel):
     message: str
-    context: Optional[Context] = None
+    additional_context: Optional[str] = None
+    highlighted: Optional[dict[str, float]] = None
 
 
 class HexagonData(BaseModel):
@@ -59,7 +50,7 @@ class InformationResponse(BaseModel):
     """The validated information is the response body.""" 
     response: str
     hexagonData: Optional[Dict[str, HexagonData]] = None
-    highlighted: Optional[list[str]] = None  # H3 IDs to emphasize
+    highlighted: Optional[dict[str, float]] = None  # H3 IDs to emphasize
 
 
 # ---- Data table response models ----

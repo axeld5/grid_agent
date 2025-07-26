@@ -1,9 +1,10 @@
 import os
 import requests
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from pydantic import ValidationError
 from smolagents import CodeAgent, WebSearchTool, LiteLLMModel
 from dotenv import load_dotenv
+from typing import Optional, List
 
 from agent_utils.schemas import (
     Scorer, Information, HexagonData,
@@ -25,13 +26,14 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY")
 
 
-def supabase_get(table, select="*"):
+def supabase_get(table, select="*", hexagon_ids=None):
     """
     Generic function to get data from Supabase tables.
     
     Args:
         table: Name of the table to query
         select: Fields to select (default: "*")
+        hexagon_ids: Optional list of hexagon IDs to filter by
     
     Returns:
         tuple: (data, total_count)
@@ -44,6 +46,12 @@ def supabase_get(table, select="*"):
     
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     params = [("select", select)]
+    
+    # Add hexagon_id filter if provided
+    if hexagon_ids and len(hexagon_ids) > 0:
+        # Format for Supabase: hexagon_id=in.(id1,id2,id3)
+        hexagon_ids_str = ",".join(str(id) for id in hexagon_ids)
+        params.append(("hexagon_id", f"in.({hexagon_ids_str})"))
 
     headers = {
         "apikey": SUPABASE_KEY,
@@ -147,7 +155,7 @@ def score(req: ScoreRequest):
         ranked_data = sorted(scored_data, key=lambda x: x['aggregated_score'], reverse=True)
         
         # Get top 5 hexagon IDs for highlighting
-        top_hexagons = [item['hexagon_id'] for item in ranked_data[:5]]
+        top_hexagons = {item['hexagon_id']: item['aggregated_score'] for item in ranked_data[:5]}
         
         # Create response message
         response_message = "These are the top 5 data center locations, based on my computations:\n"
@@ -183,7 +191,7 @@ def information(req: InformationRequest):
     
     # Generate the prompt using the dedicated function
     info_schema_str = Information.model_json_schema()
-    query = generate_information_prompt(req.message, info_schema_str)
+    query = generate_information_prompt(req.message, req.additional_context, info_schema_str)
     
     try:
         result = agent.run(query)
@@ -201,7 +209,47 @@ def information(req: InformationRequest):
             else:
                 formatted_response += f"{schema_value}\n"
             formatted_response += "\n"
-        return InformationResponse(response=formatted_response.strip())
+        
+        # Check if highlighted is not empty and fetch hexagon data
+        hexagon_data_dict = None
+        if req.highlighted and len(req.highlighted) > 0:
+            # Get hexagon IDs from highlighted
+            hexagon_ids = list(req.highlighted.keys())
+            
+            # Fetch data from all three tables for these hexagon IDs
+            grid_data, _ = supabase_get("grid_data", hexagon_ids=hexagon_ids)
+            network_data, _ = supabase_get("network_data", hexagon_ids=hexagon_ids) 
+            temperature_data, _ = supabase_get("temperature_data", hexagon_ids=hexagon_ids)
+            
+            # Create dictionaries for faster lookup by hexagon_id
+            grid_dict = {str(item.get('hexagon_id')): item for item in grid_data if item.get('hexagon_id')}
+            network_dict = {str(item.get('hexagon_id')): item for item in network_data if item.get('hexagon_id')}
+            temp_dict = {str(item.get('hexagon_id')): item for item in temperature_data if item.get('hexagon_id')}
+            
+            # Create hexagon data using scores from highlighted
+            hexagon_data_dict = {}
+            for hexagon_id, score in req.highlighted.items():
+                hexagon_id_str = str(hexagon_id)
+                grid_record = grid_dict.get(hexagon_id_str, {})
+                network_record = network_dict.get(hexagon_id_str, {})
+                temp_record = temp_dict.get(hexagon_id_str, {})
+                
+                # Create HexagonData for this hexagon using the existing score
+                hexagon_data_dict[hexagon_id_str] = HexagonData(
+                    score=score,  # Use the score from highlighted
+                    connection_points=grid_record.get('connection_points'),
+                    latency_ms=network_record.get('latency_ms'),
+                    avg_temperature=temp_record.get('avg_temperature'),
+                    connection_normalized_score=grid_record.get('connection_normalized_score'),
+                    latency_normalized_score=network_record.get('latency_normalized_score'),
+                    temperature_normalized_score=temp_record.get('temperature_normalized_score')
+                )
+        
+        return InformationResponse(
+            response=formatted_response.strip(),
+            hexagonData=hexagon_data_dict,
+            highlighted=req.highlighted
+        )
     except ValidationError as ve:
         raise HTTPException(status_code=400, detail=f"Validation error: {ve}") from ve
     except Exception as e:
@@ -209,49 +257,49 @@ def information(req: InformationRequest):
 
 
 # ---- Data endpoints ----
-def get_grid_data():
+def get_grid_data(hexagon_ids: Optional[List[str]] = Query(None, description="Filter by hexagon IDs")):
     """
-    Returns all grid data from the grid_data table.
+    Returns grid data from the grid_data table, optionally filtered by hexagon IDs.
     """
     try:
-        data, total_count = supabase_get("grid_data")
+        data, total_count = supabase_get("grid_data", hexagon_ids=hexagon_ids)
         return GridDataResponse(data=data, total_count=total_count)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching grid data: {e}") from e
 
 
-def get_temperature_data():
+def get_temperature_data(hexagon_ids: Optional[List[str]] = Query(None, description="Filter by hexagon IDs")):
     """
-    Returns all temperature data from the temperature_data table.
+    Returns temperature data from the temperature_data table, optionally filtered by hexagon IDs.
     """
     try:
-        data, total_count = supabase_get("temperature_data")
+        data, total_count = supabase_get("temperature_data", hexagon_ids=hexagon_ids)
         return TemperatureDataResponse(data=data, total_count=total_count)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching temperature data: {e}") from e
 
 
-def get_network_data():
+def get_network_data(hexagon_ids: Optional[List[str]] = Query(None, description="Filter by hexagon IDs")):
     """
-    Returns all network data from the network_data table.
+    Returns network data from the network_data table, optionally filtered by hexagon IDs.
     """
     try:
-        data, total_count = supabase_get("network_data")
+        data, total_count = supabase_get("network_data", hexagon_ids=hexagon_ids)
         return NetworkDataResponse(data=data, total_count=total_count)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching network data: {e}") from e 
 
 
-def get_full_data():
+def get_full_data(hexagon_ids: Optional[List[str]] = Query(None, description="Filter by hexagon IDs")):
     """
     Returns all data from grid_data, network_data, and temperature_data tables
-    in a combined dictionary format.
+    in a combined dictionary format, optionally filtered by hexagon IDs.
     """
     try:
-        # Get data from all three tables
-        grid_data, _ = supabase_get("grid_data")
-        network_data, _ = supabase_get("network_data")
-        temperature_data, _ = supabase_get("temperature_data")
+        # Get data from all three tables with the same filter
+        grid_data, _ = supabase_get("grid_data", hexagon_ids=hexagon_ids)
+        network_data, _ = supabase_get("network_data", hexagon_ids=hexagon_ids)
+        temperature_data, _ = supabase_get("temperature_data", hexagon_ids=hexagon_ids)
         
         return FullDataResponse(
             grid_data=grid_data,
