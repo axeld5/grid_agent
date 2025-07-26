@@ -5,8 +5,8 @@ from pydantic import BaseModel
 # ---- Domain models ----
 class Scorer(BaseModel):
     score_grid: float
-    score_water: float
-    score_elevation: float
+    score_temperature: float
+    score_network: float
 
 
 class Information(BaseModel):
@@ -17,10 +17,7 @@ class Information(BaseModel):
 
 # ---- Request/Response models ----
 class ScoreRequest(BaseModel):
-    french_location: str
-    # Optional: override the model on a per-request basis
-    model_id: Optional[str] = None
-
+    message: str
 
 class ScoreResponse(Scorer):
     """The validated weights are the response body."""
@@ -61,3 +58,25 @@ class InformationResponse(BaseModel):
     response: str
     hexagonData: Optional[Dict[str, HexagonData]] = None
     highlighted: Optional[list[str]] = None  # H3 IDs to emphasize
+
+
+# ---- Data table response models ----
+class DataResponse(BaseModel):
+    """Generic response for data table queries."""
+    data: list[Dict[str, Any]]
+    total_count: Optional[str] = None
+
+
+class GridDataResponse(DataResponse):
+    """Response for grid data table."""
+    pass
+
+
+class TemperatureDataResponse(DataResponse):
+    """Response for temperature data table."""
+    pass
+
+
+class NetworkDataResponse(DataResponse):
+    """Response for network data table."""
+    pass
