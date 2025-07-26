@@ -19,7 +19,7 @@ app = FastAPI(title="Datacenter Weighting API", version="1.0.0")
 
 
 # ---- Route registration ----
-app.post("/score", response_model=ScoreResponse, summary="Get grid/water/elevation weights for a French location")(score)
+app.post("/score", response_model=InformationResponse, summary="Get grid/water/elevation weights for a French location")(score)
 app.post("/information", response_model=InformationResponse, summary="Get datacenter installation information for a French location")(information)
 
 # Data endpoints
