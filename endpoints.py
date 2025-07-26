@@ -6,8 +6,8 @@ from smolagents import CodeAgent, WebSearchTool, LiteLLMModel
 from dotenv import load_dotenv
 
 from agent_utils.schemas import (
-    Scorer, Information,
-    ScoreRequest, InformationRequest, InformationResponse,
+    Scorer, Information, HexagonData,
+    ScoreRequest, ScoreResponse, InformationRequest, InformationResponse,
     GridDataResponse, TemperatureDataResponse, NetworkDataResponse, FullDataResponse
 )
 from agent_utils.prompts import generate_scoring_prompt, generate_information_prompt
@@ -63,8 +63,8 @@ def supabase_get(table, select="*"):
 
 def score(req: ScoreRequest):
     """
-    Returns a set of three weights (grid, water, elevation) for the requested
-    French location. The three scores always sum to 1.0 and conform to the Scorer schema.
+    Returns a set of three weights (grid, network, temperature) for the requested
+    French location and applies them to data to return ranked results.
     """
     # Create the model + agent per request for thread-safety
     model = LiteLLMModel(model_id=DEFAULT_MODEL_ID)
@@ -80,9 +80,87 @@ def score(req: ScoreRequest):
     query = generate_scoring_prompt(req.message, schema_str)
     
     try:
+        # Get the weights from the agent
         result = agent.run(query)
         validated = Scorer.model_validate(result)
-        return validated.model_dump()
+        weights = validated.model_dump()
+        
+        # Fetch data from all three tables
+        grid_data, _ = supabase_get("grid_data")
+        network_data, _ = supabase_get("network_data") 
+        temperature_data, _ = supabase_get("temperature_data")
+        
+        # Create dictionaries for faster lookup by id (assuming records have an 'id' field)
+        grid_dict = {item.get('hexagon_id'): item for item in grid_data if item.get('hexagon_id')}
+        network_dict = {item.get('hexagon_id'): item for item in network_data if item.get('hexagon_id')}
+        temp_dict = {item.get('hexagon_id'): item for item in temperature_data if item.get('hexagon_id')}
+        
+        # Get all unique IDs
+        all_ids = set(grid_dict.keys()) | set(network_dict.keys()) | set(temp_dict.keys())
+        
+        # Calculate aggregated scores and create hexagon data
+        scored_data = []
+        hexagon_data_dict = {}
+        
+        for record_id in all_ids:
+            grid_record = grid_dict.get(record_id, {})
+            network_record = network_dict.get(record_id, {})
+            temp_record = temp_dict.get(record_id, {})
+            
+            # Get normalized scores, default to -1 if null/missing
+            grid_norm = grid_record.get('connection_normalized_score', -1) if grid_record.get('connection_normalized_score') is not None else -1
+            network_norm = network_record.get('latency_normalized_score', -1) if network_record.get('latency_normalized_score') is not None else -1
+            temp_norm = temp_record.get('temperature_normalized_score', -1) if temp_record.get('temperature_normalized_score') is not None else -1
+            
+            # Calculate aggregated score
+            aggregated_score = (
+                weights['score_grid'] * grid_norm +
+                weights['score_network'] * network_norm + 
+                weights['score_temperature'] * temp_norm
+            )
+            
+            # Normalize aggregated score to 0-1 range
+            # Handle case where all normalized scores are -1 (missing data)
+            if grid_norm == -1 and network_norm == -1 and temp_norm == -1:
+                normalized_aggregated_score = 0.0
+            else:
+                # For valid scores, normalize from [-1,1] to [0,1] range
+                normalized_aggregated_score = max(0, min(1, (aggregated_score + 1) / 2))
+            
+            # Create HexagonData for this hexagon
+            hexagon_data_dict[record_id] = HexagonData(
+                score=normalized_aggregated_score,
+                connection_points=grid_record.get('connection_points'),
+                latency_ms=network_record.get('latency_ms'),
+                avg_temperature=temp_record.get('avg_temperature'),
+                connection_normalized_score=grid_record.get('connection_normalized_score'),
+                latency_normalized_score=network_record.get('latency_normalized_score'),
+                temperature_normalized_score=temp_record.get('temperature_normalized_score')
+            )
+            
+            scored_data.append({
+                'hexagon_id': record_id,
+                'aggregated_score': aggregated_score
+            })
+        
+        # Rank data by aggregated score (highest first)
+        ranked_data = sorted(scored_data, key=lambda x: x['aggregated_score'], reverse=True)
+        
+        # Get top 5 hexagon IDs for highlighting
+        top_hexagons = [item['hexagon_id'] for item in ranked_data[:5]]
+        
+        # Create response message
+        response_message = "These are the top 5 data center locations, based on my computations:\n"
+        for i, item in enumerate(ranked_data[:5], 1):
+            response_message += f"- hexagon id {item['hexagon_id']}\n"
+        response_message += "\nDo you want me to elaborate on them?"
+        
+        return InformationResponse(
+            response=response_message,
+            hexagonData=hexagon_data_dict,
+            highlighted=top_hexagons
+        )
+        
     except ValidationError as ve:
         raise HTTPException(status_code=400, detail=f"Validation error: {ve}") from ve
     except Exception as e:

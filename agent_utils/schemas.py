@@ -19,8 +19,13 @@ class Information(BaseModel):
 class ScoreRequest(BaseModel):
     message: str
 
-class ScoreResponse(Scorer):
-    """The validated weights are the response body."""
+
+class ScoreResponse(BaseModel):
+    """Response containing weights and ranked data."""
+    score_grid: float
+    score_temperature: float
+    score_network: float
+    ranked_data: list[Dict[str, Any]]
 
 
 class CurrentView(BaseModel):
@@ -40,17 +45,14 @@ class InformationRequest(BaseModel):
 
 class HexagonData(BaseModel):
     score: float  # 0-1 for color mapping
-    internetSpeed: Optional[float] = None
-    gridDistance: Optional[float] = None
-    nbGridConnections: Optional[float] = None
-    avgTemp: Optional[float] = None
     
-    internetSpeedNorm: Optional[float] = None
-    gridDistanceNorm: Optional[float] = None
-    nbGridConnectionsNorm: Optional[float] = None
-    avgTempNorm: Optional[float] = None
+    connection_points: Optional[float] = None
+    latency_ms: Optional[float] = None
+    avg_temperature: Optional[float] = None
     
-    opposition: Optional[str] = None  # "low" | "medium" | "high"
+    connection_normalized_score: Optional[float] = None
+    latency_normalized_score: Optional[float] = None
+    temperature_normalized_score: Optional[float] = None
 
 
 class InformationResponse(BaseModel):
