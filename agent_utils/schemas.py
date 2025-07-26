@@ -80,3 +80,10 @@ class TemperatureDataResponse(DataResponse):
 class NetworkDataResponse(DataResponse):
     """Response for network data table."""
     pass
+
+
+class FullDataResponse(BaseModel):
+    """Response for combined data from all tables."""
+    grid_data: list[Dict[str, Any]]
+    network_data: list[Dict[str, Any]]
+    temperature_data: list[Dict[str, Any]]
