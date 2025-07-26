@@ -1,5 +1,6 @@
 import os
 import requests
+import h3
 from fastapi import HTTPException, Query
 from pydantic import ValidationError
 from smolagents import CodeAgent, WebSearchTool, LiteLLMModel
@@ -24,6 +25,35 @@ STREAM_OUTPUTS = os.getenv("STREAM_OUTPUTS", "false").lower() == "true"
 # Supabase configuration
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY")
+
+def latlng_to_location(lat, lng):
+    """
+    Converts a latitude and longitude to a location name using Nominatim.
+    """
+    url = "https://nominatim.openstreetmap.org/reverse"
+    params = {
+        'lat': lat,
+        'lon': lng,
+        'format': 'json',
+        'addressdetails': 1
+    }
+    headers = {'User-Agent': 'GridAgent/1.0'}
+
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        address = data.get('address', {})
+        return address.get('town') or address.get('city') or address.get('village') or "Unknown"
+    except Exception:
+        return "Unknown"
+    
+def get_location_from_hexagon_id(hexagon_id: str):
+    """
+    Converts a hexagon ID to a location name using the lat/lng of the hexagon.
+    """
+    lat, lng = h3.cell_to_latlng(hexagon_id)
+    return latlng_to_location(lat, lng)
 
 
 def supabase_get(table, select="*", hexagon_ids=None):
@@ -160,7 +190,7 @@ def score(req: ScoreRequest):
         # Create response message
         response_message = "These are the top 5 data center locations, based on my computations:\n"
         for i, item in enumerate(ranked_data[:5], 1):
-            response_message += f"- hexagon id {item['hexagon_id']}\n"
+            response_message += f"- The county of {get_location_from_hexagon_id(item['hexagon_id'])} with score {item['aggregated_score']:.2f}\n"
         response_message += "\nDo you want me to elaborate on them?"
         
         return InformationResponse(
